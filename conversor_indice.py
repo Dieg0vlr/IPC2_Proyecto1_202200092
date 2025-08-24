@@ -22,4 +22,4 @@ class ConversorIndice:
                 return par.indice
             aux = aux.siguiente
         return -1 #no lo encontro
-                
+                            

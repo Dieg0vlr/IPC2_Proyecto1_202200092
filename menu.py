@@ -510,10 +510,188 @@ class Menu:
 
 
     def generar_grafica(self):
-        print("No implementado aun")    
-        
-        
-        
+        # valida que existan datos procesados
+        if self.campos is None:
+            print("Primero debe cargar y procesar un archivo")
+            return
+
+        # pedir ruta y nombre del archivo .dot
+        ruta = input("Ingrese la ruta destino (carpeta): ").strip()
+        nombre = input("Ingrese el nombre del archivo .dot: ").strip()
+        if not nombre.lower().endswith(".dot"):
+            nombre += ".dot"
+
+        # armar ruta final
+        ruta = ruta.rstrip("/\\")
+        ruta_completa = (ruta + "/" + nombre) if ruta else nombre
+
+        # Construir un id para DOT sin espacios
+        def dot_id(prefijo, id_campo, id_item):
+            # evita espacios y simbolos raros
+            safe_campo = str (id_campo).replace(" ", "_")
+            safe_item = str(id_item).replace(" ", "_")
+            return prefijo + "_" + safe_campo + "_" + safe_item       
+
+        # contar filas y columnas de una matriz enlazada
+        def dimensiones(matriz):
+            nfilas = 0
+            nf = matriz.filas.primero
+            while nf:
+                nfilas += 1
+                nf = nf.siguiente
+            ncols = 0
+            nf = matriz.filas.primero
+            if nf:
+                nc = nf.dato.celdas.primero
+                while nc:
+                    ncols += 1
+                    nc = nc.siguiente
+            return nfilas, ncols
+
+        try:
+            # abrimos archivo .dot
+            with open(ruta_completa, "w", encoding="utf-8") as f:
+                # encabezado del grafo
+                f.write("digraph G {\n")
+                f.write('  rankdir=LR;\n')
+                f.write('  overlap=false;\n')
+                f.write('  splines=true;\n')
+                f.write('  fontname="Arial";\n')
+                f.write('  node [fontname="Arial"];\n')
+                f.write('  edge [fontname="Arial"];\n')            
+
+                # Recorrer cada campo para dibujar como un closter
+                nodo_campo = self.campos.primero
+                while nodo_campo:
+                    campo = nodo_campo.dato
+                    id_campo = getattr(campo, "id", "")
+                    nom_campo = getattr(campo, "nombre", "")
+
+                    # Subgrafo (cluster) para el campo
+                    f.write(f'  subgraph cluster_{str(id_campo).replace(" ", "_")} {{\n')
+                    f.write('    color="gray70";\n')
+                    f.write(f'    label="campo: {nom_campo}";\n')
+                    f.write('    labelloc="t";\n')
+
+                    #NODOS DE ESTACIONES
+                    f.write('    // estaciones\n')
+                    nodo_est = campo.estaciones.primero
+                    while nodo_est:
+                        est = nodo_est.dato
+                        est_id = dot_id("est", id_campo, getattr(est, "id", ""))
+                        est_label = str(getattr(est, "id", "")) + "\\n" + str(getattr(est, "nombre", ""))
+                        f.write(f'    {est_id} [shape=box, style="rounded,filled", fillcolor="#e8f0fe", label="{est_label}"];\n')
+                        nodo_est = nodo_est.siguiente
+
+                    #NODOS DE SENSORES DE SUELO
+                    f.write('    // sensores de suelo\n')
+                    nodo_ss = campo.sensores_suelo.primero
+                    while nodo_ss:
+                        ss = nodo_ss.dato
+                        ss_id = dot_id("ss", id_campo, getattr(ss, "id", ""))
+                        ss_label = "SUELO\\n" + str(getattr(ss, "id", "")) + "\\n" + str(getattr(ss, "nombre", ""))
+                        f.write(f'    {ss_id} [shape=ellipse, style="filled", fillcolor="#e6ffed", label="{ss_label}"];\n')
+                        nodo_ss = nodo_ss.siguiente
+
+                    # NODOS DE SENSORES DE CULTIVOS
+                    f.write('    // sensores de cultivo\n')
+                    nodo_sc = campo.sensores_cultivo.primero
+                    while nodo_sc:
+                        sc = nodo_sc.dato
+                        sc_id = dot_id("sc", id_campo, getattr(sc, "id", ""))
+                        sc_label = "CULTIVO\\n" + str(getattr(sc, "id", "")) + "\\n" + str(getattr(sc, "nombre", ""))
+                        f.write(f'    {sc_id} [shape=ellipse, style="filled", fillcolor="#fff4e6", label="{sc_label}"];\n')
+                        nodo_sc = nodo_sc.siguiente
+
+                    #aristas F_ns -> sensor de suelo
+                    F_ns = getattr(campo, "F_ns", None)
+                    if F_ns is not None:
+                        f.write('    // aristas F[n,s] (frecuencia suelo)\n')
+                        nfilas_s, ncols_s = dimensiones(F_ns)        
+
+                        # necesitamos mapear indices de fila (estaciones) y columna (sensores suelo)
+                        # recorremos estaciones para hacer una lista virtual por posicion 
+                        # caminamos de nuevo cuando necesitemos id textual
+
+                        i = 0
+                        while i < nfilas_s:
+                            # Obtener el nodo de estacion en la posicion i
+                            pos = 0
+                            nodo_est = campo.estaciones.primero
+                            while nodo_est and pos < i:
+                                nodo_est = nodo_est.siguiente
+                                pos += 1
+                            est = nodo_est.dato if nodo_est else None
+                            est_id = dot_id("est", id_campo, getattr(est, "id", ""))
+
+                            j = 0
+                            while j < ncols_s:
+                                # Obtener el nodo del sensor de suelo en la posicion j
+                                posc = 0
+                                nodo_ss = campo.sensores_suelo.primero
+                                while nodo_ss and posc < j:
+                                    nodo_ss = nodo_ss.siguiente
+                                    posc += 1
+                                ss = nodo_ss.dato if nodo_ss else None
+                                ss_id = dot_id("ss", id_campo, getattr(ss, "id", "")) if ss else None
+
+                                val = F_ns.get(i, j)
+                                if est_id and ss_id and val > 0:
+                                    f.write(f'    {est_id} -> {ss_id} [label="{val}", color="#2e7d32"];\n')
+                                j += 1
+                                # Fin while columnas
+                            i += 1
+                            #fin while filas         
+
+                    # Aristas F_nt: estacion -> sensor de cultivo
+                    F_nt = getattr(campo, "F_nt", None)
+                    if F_nt is not None:
+                        f.write('    // aristas F[n,t] (frecuencia cultivo)\n')
+                        nfilas_t, ncols_t = dimensiones(F_nt)
+
+                        i = 0
+                        while i < nfilas_t:
+                            # Estacion en posicion i
+                            pos = 0
+                            nodo_est = campo.estaciones.primero
+                            while nodo_est and pos < i:
+                                nodo_est = nodo_est.siguiente
+                                pos += 1
+                            est = nodo_est.dato if nodo_est else None
+                            est_id = dot_id("est", id_campo, getattr(est, "id", "")) if est else None
+
+                            j = 0
+                            while j < ncols_t:
+                                # Sensor de cultivo en posicion j
+                                posc = 0
+                                nodo_sc = campo.sensores_cultivo.primero
+                                while nodo_sc and posc < j:
+                                    nodo_sc = nodo_sc.siguiente
+                                    posc += 1
+                                sc = nodo_sc.dato if nodo_sc else None  
+                                sc_id = dot_id("sc", id_campo, getattr(sc, "id", "")) if sc else None
+
+                                val = F_nt.get(i, j)
+                                if est_id and sc_id and val > 0:
+                                    f.write(f'    {est_id} -> {sc_id} [label="{val}", color="#c62828"];\n')
+                                j += 1
+                            i += 1
+
+                    # cerrar cluster del campo
+                    f.write('  }\n')
+
+                    nodo_campo = nodo_campo.siguiente
+                
+                # fin del grafo
+                f.write("}\n")
+
+            print("Archivo DOT generado en: ", ruta_completa)               
+            print("Para renderizarlo, use por ejemplo:")
+            print('dot -Tpng "' + ruta_completa + '" -o "salida.png"')
+
+        except Exception as e:
+            print("Error al generar la grafica:", e)
+
 
 
                                                             
