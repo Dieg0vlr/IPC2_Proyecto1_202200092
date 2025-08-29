@@ -4,6 +4,7 @@ from modelos import Campo, EstacionBase, SensorSuelo, SensorCultivo, Frecuencia
 
 
 class GestorArchivos:
+    
     def cargar(self, ruta, nombre_archivo):
         ruta_completa = ruta.rstrip("/\\") + "/" + nombre_archivo
 
